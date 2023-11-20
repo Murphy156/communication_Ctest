@@ -6,22 +6,22 @@
 uint8_t	 rd_p,wr_p;
 uint8_t	 data_buff[max_length];
 
-uint16_t calculateCRC16(uint8_t arr[7]) {
+uint16_t calculateCRC16(uint8_t* arr) {
     uint16_t crc = 0xFFFF;
     uint16_t poly = 0x8005;
 
     for (int i = 0; i < 7; i++) {
-        printf("循环次数: %d\n", i);
-        printf("当前处理的字节: %02X\n", arr[i]);
+        // printf("循环次数: %d\n", i);
+        // printf("当前处理的字节: %02X\n", arr[i]);
         crc ^= (arr[i] << 8);
 
         for (int j = 0; j < 8; j++) {
             if (crc & 0x8000) {
                 crc = (crc << 1) ^ poly;
-                printf("crc2: %04X\n", crc);
+                // printf("crc2: %04X\n", crc);
             } else {
                 crc <<= 1;
-                printf("crc3: %04X\n", crc);
+                // printf("crc3: %04X\n", crc);
             }
         }
     }
@@ -194,6 +194,29 @@ static uint8_t protocol_Check_header_CRC(void)
     }
 }
 
+/**
+ * @brief   解析速度数据，要注意正转还是反转
+ * @param   参数值的32位，4个字节的数据
+ * @return  void
+ */
+void parseData(uint32_t input) {
+    int32_t set;
+    uint16_t speed_pulse;   //定义转速值
+    // 检查这个32位的数据的最高位是否为1，如果为1则为负数
+    if (input & 0x80000000) {
+        //传入的数据是一个负数的补码，要将他转换一下，成原码
+        printf("negative\n");
+        set = (~input) + 1;
+        //设置
+        speed_pulse = 37500 / set;
+    } else {
+        //传入的数据是一个正数
+        printf("positive\n");
+        set = input;
+        speed_pulse = 37500 / set;
+    }
+    return ;
+}
 
 /**
  * @brief   接收的数据处理
@@ -220,21 +243,22 @@ int8_t receiving_process(void)
         {   
             printf("the cmd rd_p: %d",rd_p);
             cmd_type = data_buff[rd_p];
-            //提取了命令，解析参数。
-            tmp_para = mergeParametersToUint32();
 
             switch (cmd_type)
             {
-            case 0x01:
-            {
-                printf("enter the 0x01");
-                //处理完一帧数据后将rd_p移到下一个数据帧开头
-                rd_p = (rd_p+3) % max_length;
-            }
-                break;
-            
-            default:
-                return -1;
+                case 0x01:
+                {
+                    printf("enter the 0x01");
+                    //提取了命令，解析参数。
+                    tmp_para = mergeParametersToUint32();
+
+                    //处理完一帧数据后将rd_p移到下一个数据帧开头
+                    rd_p = (rd_p+3) % max_length;
+                }
+                    break;
+                
+                default:
+                    return -1;
             }
 
         }   
@@ -242,19 +266,51 @@ int8_t receiving_process(void)
 }
 
 
+/**
+  * @brief 设置上位机的速度值/位置值
+  * @param cmd：命令
+  * @param data：参数指针
+  * @retval 无
+  */
+void set_computer_Speed_Location_value(uint8_t cmd, int32_t data)
+{
+    uint8_t tmp_arr[9]; // 定义并初始化数组
+    uint16_t crc16 = 0;
+
+    tmp_arr[0] = 0xaa;
+    tmp_arr[1] = 0x55;
+    tmp_arr[2] = cmd;
+    tmp_arr[3] = data & 0xFF;          // 提取最低有效字节
+    tmp_arr[4] = (data >> 8) & 0xFF;   // 提取次低有效字节
+    tmp_arr[5] = (data >> 16) & 0xFF;  // 提取次高有效字节
+    tmp_arr[6] = (data >> 24) & 0xFF;  // 提取最高有效字节
+
+    // 计算crc16
+    crc16 = calculateCRC16(tmp_arr);
+    tmp_arr[7] = crc16 & 0xFF;         // 提取CRC16的最低有效字节
+    tmp_arr[8] = (crc16 >> 8) & 0xFF;  // 提取CRC16的次低有效字节
+
+    // 打印数组
+    for (int i = 0; i < 9; i++) {
+        printf("%02x ", tmp_arr[i]);
+    }
+    printf("\n");
+}
+
+
 int main() {
-    uint8_t initial_data[15] = {0x11, 0x61, 0x17, 0xaa, 0x55, 0x01, 0x9c, 0xff, 0xff, 0xff, 0xb3, 0x5c, 0x00, 0x00,0x11};
-    wr_p = 14;
+    printf("Testing set_computer_Speed_Location_value function...\n");
 
-    // 正确初始化data_buff数组
-    for (int i = 0; i < 15; i++) {
-        data_buff[i] = initial_data[i];
-    }
+    // 测试用例1
+    printf("Test case 1:\n");
+    set_computer_Speed_Location_value(0x01, 0x12345678);
 
-    while (1)
-    {
-        receiving_process();
-    }
-    
+    // 可以添加更多测试用例
+    // 测试用例2
+    printf("Test case 2:\n");
+    set_computer_Speed_Location_value(0x02, 0x20ABCDEF);
+
+    printf("Testing completed.\n");
+
     return 0;
 }
